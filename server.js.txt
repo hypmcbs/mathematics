@@ -1,0 +1,72 @@
+const express = require("express");
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const http = require("http");
+const { Server } = require("socket.io");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+const PORT = process.env.PORT || 3000; // For deployment on Vercel
+const JWT_SECRET = "your_jwt_secret"; // Replace this with a stronger secret
+
+app.use(express.json());
+
+// Connect to MongoDB (replace with your Atlas URI later)
+mongoose.connect("mongodb+srv://vivan:hashedpassword@chat-app.odlosvs.mongodb.net/", {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+});
+
+// User Schema
+const userSchema = new mongoose.Schema({
+    username: { type: String, unique: true, required: true },
+    password: { type: String, required: true },
+});
+
+const User = mongoose.model("User", userSchema);
+
+// Routes for authentication
+app.post("/register", async (req, res) => {
+    const { username, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ username, password: hashedPassword });
+
+    try {
+        await user.save();
+        res.status(201).send("User registered!");
+    } catch (err) {
+        res.status(400).send("Error registering user: " + err.message);
+    }
+});
+
+app.post("/login", async (req, res) => {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+        return res.status(401).send("Invalid credentials");
+    }
+
+    const token = jwt.sign({ id: user._id }, JWT_SECRET);
+    res.json({ token });
+});
+
+// Chat functionality with Socket.IO
+io.on("connection", (socket) => {
+    console.log("A user connected");
+
+    socket.on("chat_message", (msg) => {
+        io.emit("chat_message", msg); // Broadcast message to all
+    });
+
+    socket.on("disconnect", () => {
+        console.log("A user disconnected");
+    });
+});
+
+// Start the server
+server.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+});
